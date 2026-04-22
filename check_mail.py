@@ -19,10 +19,104 @@ from datetime import datetime
 from email.header import decode_header
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from typing import Tuple as TP
+
+
+def _decode_email_subject(subject_bytes):
+    """Decode email subject with multi-encoding support.
+
+    Handles UTF-8, ISO-8859-1, Q-encoding (RFC 2047), and mixed formats.
+    Supports: plain ASCII, international chars, emojis.
+    """
+    if isinstance(subject_bytes, bytes):
+        # Method 1: Primary decode using email.header (best for most cases)
+        decoded = decode_header(subject_bytes)[0]
+        try:
+            if isinstance(decoded, bytes):
+                # Try UTF-8 first
+                try:
+                    result = decoded.decode("utf-8")
+                except:
+                    result = decoded.decode("iso-8859-1", errors="ignore")
+
+                # Check if result is still Q-encoded
+                if isinstance(result, str) and (
+                    "?Q?=" in result or "?UTF-8?Q?=" in result
+                ):
+                    # Q-encoding detected - decode it
+                    # Clean up Q-encoding markers in the string
+                                        # Clean up Q-encoding markers in the string
+                                        clean = result.replace(
+                                            "=?UTF-8?Q?=", ""
+                                        ).replace(
+                                            "=?utf-8?Q?=", ""
+                                        ).replace(
+                                            "=?Q?=", ""
+                                        ).replace(
+                                            "=?q?=", ""
+                                        ).replace(
+                                            "=?", ""
+                                        ).strip()
+                    # Double clean (catch any missed markers)
+                    clean = (
+                        clean.replace("=?Q?=", "")
+                        .replace("=?q?=", "")
+                        .replace("=?", "")
+                    ).strip()
+                    # Split Q-markers and equal signs
+                    parts = [
+                        p.replace("=", "")
+                        for p in clean.split("=", maxsplit=3)
+                    ]
+                    if parts:
+                        try:
+                            import base64
+
+                            b64_str = "".join(parts)
+                            decoded_text = base64.b64decode(b64_str).decode(
+                                "utf-8", errors="ignore"
+                            )
+                            return decoded_text.strip()
+                        except:
+                            except:
+                                # If base64 fails, try direct latin-1 then utf-8
+                                return result.encode("iso-8859-1").decode("utf-8", errors="ignore").strip()
+                    except:
+                        # If all fails, return stripped string
+                        return result.strip() if result else ""
+                else:
+                    # Already decoded properly
+                    return result.strip() if result else ""
+            else:
+                # Already decoded string
+                return decoded.strip()
+        except Exception:
+            # Fallback: try ISO-8859-1 on raw bytes
+            try:
+                return subject_bytes.decode("iso-8859-1", errors="ignore").strip()
+            except:
+                return str(subject_bytes).strip()
+    elif isinstance(subject_bytes, str):
+        return subject_bytes.strip()
+
+    return str(subject_bytes)
+
 
 # =============================================================================
-# CONFIGURATION
+# DATABASE MANAGEMENT - ACCOUNTS (SQLite)
+# =============================================================================
+BASE_DIR = Path(__file__).parent
+DB_FILE = BASE_DIR / "mail_check.db"
+LOG_FILE = BASE_DIR / "mail_check.log"
+
+
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+def setup_logging():
+
+
+# =============================================================================
+# DATABASE MANAGEMENT - ACCOUNTS (SQLite)
 # =============================================================================
 BASE_DIR = Path(__file__).parent
 DB_FILE = BASE_DIR / "mail_check.db"
@@ -295,13 +389,7 @@ def check_mail(
 
             try:
                 subject_bytes = msg["subject"]
-                decoded_part = decode_header(subject_bytes)[0]
-                subject = (
-                    decoded_part.decode("utf-8", errors="ignore")
-                    if isinstance(decoded_part, bytes)
-                    else decoded_part
-                )
-                subject = subject.strip()
+                subject = _decode_email_subject(subject_bytes)
             except Exception:
                 subject = str(subject_bytes)
 
@@ -405,7 +493,30 @@ def run_full_check():
             messages = data.get("messages", [])
             for i, mail in enumerate(messages[:3]):
                 subject = mail.get("subject", "No subject found")
-                logging.info(f"  -> Message {i + 1}: Subject='{subject}'")
+                # Limit subject length to prevent very long lines
+                if len(subject) > 150:
+                    subject = subject[:147] + "..."
+                # Also strip Q-encoding markers from display
+                if isinstance(subject, str):
+                    subject_display = (
+                        subject.replace("=?UTF-8?Q?=", "")
+                        .replace("=?utf-8?Q?=", "")
+                        .replace("=?Q?=", "")
+                        .replace("=?", "")
+                    )
+                    subject_display = subject_display.strip()
+                else:
+                    subject_display = subject
+
+                # Format for display - normalize line breaks for cleaner output
+                subject_display = subject.replace("\n", "\n             ").strip()
+
+                logging.info(f"  -> Message {i + 1}: Subject='{subject_display}'")
+                # Print first 100 chars for debugging (when long)
+                if len(subject_display) > 100:
+                    logging.info(
+                        f"    [DEBUG] Subject first 100 chars: {subject_display[:100]}"
+                    )
             if len(messages) > 3:
                 logging.info(
                     f"  -> ... and {len(messages) - 3} more messages not shown."
