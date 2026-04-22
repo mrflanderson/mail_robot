@@ -44,18 +44,14 @@ def _decode_email_subject(subject_bytes):
                 ):
                     # Q-encoding detected - decode it
                     # Clean up Q-encoding markers in the string
-                                        # Clean up Q-encoding markers in the string
-                                        clean = result.replace(
-                                            "=?UTF-8?Q?=", ""
-                                        ).replace(
-                                            "=?utf-8?Q?=", ""
-                                        ).replace(
-                                            "=?Q?=", ""
-                                        ).replace(
-                                            "=?q?=", ""
-                                        ).replace(
-                                            "=?", ""
-                                        ).strip()
+                    clean = (
+                        result.replace("=?UTF-8?Q?=", "")
+                        .replace("=?utf-8?Q?=", "")
+                        .replace("=?Q?=", "")
+                        .replace("=?q?=", "")
+                        .replace("=?", "")
+                        .strip()
+                    )
                     # Double clean (catch any missed markers)
                     clean = (
                         clean.replace("=?Q?=", "")
@@ -63,10 +59,7 @@ def _decode_email_subject(subject_bytes):
                         .replace("=?", "")
                     ).strip()
                     # Split Q-markers and equal signs
-                    parts = [
-                        p.replace("=", "")
-                        for p in clean.split("=", maxsplit=3)
-                    ]
+                    parts = [p.replace("=", "") for p in clean.split("=", maxsplit=3)]
                     if parts:
                         try:
                             import base64
@@ -77,11 +70,17 @@ def _decode_email_subject(subject_bytes):
                             )
                             return decoded_text.strip()
                         except:
-                            except:
+                            try:
                                 # If base64 fails, try direct latin-1 then utf-8
-                                return result.encode("iso-8859-1").decode("utf-8", errors="ignore").strip()
-                    except:
-                        # If all fails, return stripped string
+                                return (
+                                    result.encode("iso-8859-1")
+                                    .decode("utf-8", errors="ignore")
+                                    .strip()
+                                )
+                            except:
+                                return ""
+                    else:
+                        # Empty parts after split, return already decoded result
                         return result.strip() if result else ""
                 else:
                     # Already decoded properly
@@ -97,22 +96,9 @@ def _decode_email_subject(subject_bytes):
                 return str(subject_bytes).strip()
     elif isinstance(subject_bytes, str):
         return subject_bytes.strip()
-
-    return str(subject_bytes)
-
-
-# =============================================================================
-# DATABASE MANAGEMENT - ACCOUNTS (SQLite)
-# =============================================================================
-BASE_DIR = Path(__file__).parent
-DB_FILE = BASE_DIR / "mail_check.db"
-LOG_FILE = BASE_DIR / "mail_check.log"
-
-
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-def setup_logging():
+    else:
+        # Fallback for any other types
+        return str(subject_bytes)
 
 
 # =============================================================================
@@ -512,11 +498,7 @@ def run_full_check():
                 subject_display = subject.replace("\n", "\n             ").strip()
 
                 logging.info(f"  -> Message {i + 1}: Subject='{subject_display}'")
-                # Print first 100 chars for debugging (when long)
-                if len(subject_display) > 100:
-                    logging.info(
-                        f"    [DEBUG] Subject first 100 chars: {subject_display[:100]}"
-                    )
+
             if len(messages) > 3:
                 logging.info(
                     f"  -> ... and {len(messages) - 3} more messages not shown."
